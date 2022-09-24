@@ -990,24 +990,25 @@ static INLINE int eth_rx(struct net_device *dev, unsigned int work_to_do, int qu
                         }
 			        mvEthPortRxDone( priv->hal_priv, queue, pPktInfo );
 			        continue;
-		}
-                out_priv->tx_count[txq]++;
-                out_dev->stats.tx_packets++;
-                out_dev->stats.tx_bytes += pPktInfo->pFrags->dataSize;
-                ETH_STAT_DBG( out_priv->eth_stat.tx_hal_ok[txq]++);
+		    }
+                    out_priv->tx_count[txq]++;
+                    out_dev->stats.tx_packets++;
+                    out_dev->stats.tx_bytes += pPktInfo->pFrags->dataSize;
+                    ETH_STAT_DBG( out_priv->eth_stat.tx_hal_ok[txq]++);
 
-                spin_unlock(out_priv->lock);
+                    spin_unlock(out_priv->lock);
 
-                /* refill RX queue */
-                pPktInfo = eth_pkt_info_get(priv);
-		if (pPktInfo != NULL)
-                    mvEthPortRxDone( priv->hal_priv, queue, pPktInfo );
-		else
-		    priv->skb_alloc_fail_cnt++;
+                   /* refill RX queue */
+                   pPktInfo = eth_pkt_info_get(priv);
+		   if (pPktInfo != NULL)
+                       mvEthPortRxDone( priv->hal_priv, queue, pPktInfo );
+		   else
+		       priv->skb_alloc_fail_cnt++;
 
-                continue;
-	    }
+                   continue;
+	        }
 
+            }
 #ifdef CONFIG_MV_ETH_NFP_SEC
 		/* NFP will make sure to complete the packet processing */
 		if( out_if_index == MV_NFP_STOLEN)
@@ -1037,7 +1038,6 @@ static INLINE int eth_rx(struct net_device *dev, unsigned int work_to_do, int qu
 			continue;
 		}
 #endif /* CONFIG_MV_ETH_NFP_SEC */
-            }
 	}
 #endif /* CONFIG_MV_ETH_NFP */
 
