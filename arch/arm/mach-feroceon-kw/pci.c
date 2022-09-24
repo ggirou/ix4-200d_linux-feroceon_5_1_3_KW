@@ -42,8 +42,19 @@
 #	define DB(x) 
 #endif
 
+#define PCI_ERR_NAME_LEN 12
+#define MV_MAX_PEX_IF_NUMBER 2
+
 static int __init mv_map_irq_0(struct pci_dev *dev, u8 slot, u8 pin);
 static int __init mv_map_irq_1(struct pci_dev *dev, u8 slot, u8 pin);
+
+void mv_pci_error_init(u32 pciIf);
+static irqreturn_t pex_error_interrupt(int irq, void *dev_id);
+
+static struct pex_if_error {
+	MV_8 irq_name[PCI_ERR_NAME_LEN];
+	MV_U32 ifNumber;
+} pex_err[MV_MAX_PEX_IF_NUMBER];
 
 
 void __init mv_pci_preinit(void)
@@ -77,6 +88,9 @@ void __init mv_pci_preinit(void)
 		//printk("writing %x tp %x \n",MV_PCI_MASK_ABCD, MV_PCI_MASK_REG(pciIf) );
 		MV_REG_WRITE(MV_PCI_MASK_REG(pciIf), MV_PCI_MASK_ABCD );
 
+		/* init PCI express error handling */
+		mv_pci_error_init(pciIf);
+
 		/* remmap IO !! */
 		win.baseLow = (pciIf? PEX1_IO_BASE : PEX0_IO_BASE) - IO_SPACE_REMAP;
 		win.baseHigh = 0x0;
@@ -85,6 +99,37 @@ void __init mv_pci_preinit(void)
 	}
 }
 
+/**
+* mv_pci_error_init
+* DESCRIPTION:	init PCI express error handling
+* INPUTS:	pciIf - number of pex device
+* OUTPUTS:	N/A
+* RETURNS:	N/A
+**/
+void mv_pci_error_init(u32 pciIf)
+{
+ 	MV_U32      reg_val;
+
+	/* enable PCI express error handling */
+	MV_REG_BIT_SET(MV_IRQ_MASK_HIGH_REG, (1 << (IRQ_PEX_ERR(pciIf) - 32)));
+
+	/* init pex_err structure per each pex */
+	pex_err[pciIf].ifNumber=pciIf;
+	snprintf(pex_err[pciIf].irq_name, PCI_ERR_NAME_LEN, "error_pex%d", pciIf);
+
+	/* register interrupt for PCI express error */
+	if( request_irq(IRQ_PEX_ERR(pciIf), pex_error_interrupt, IRQF_DISABLED ,(const char*)pex_err[pciIf].irq_name, &pex_err[pciIf].ifNumber) < 0){
+		panic("Could not allocate IRQ for PCI express error!");
+	}
+
+	/* init PCI Express Interrupt Mask Register */
+
+	/* get current value of Interrupt Mask Register */
+	reg_val = MV_REG_READ(MV_PCI_MASK_REG(pciIf));
+
+	/* set relevant mask to Interrupt Mask Register */
+	MV_REG_WRITE(MV_PCI_MASK_REG(pciIf), (reg_val | MV_PCI_MASK_ERR));
+}
 
 /* Currentlly the PCI config read/write are implemented as read modify write
    to 32 bit.
@@ -290,6 +335,26 @@ struct pci_bus *mv_pci_scan_bus(int nr, struct pci_sys_data *sys)
                 	bus->number + bus->subordinate - bus->secondary + 1); 
  
         return bus;
+}
+
+/**
+* pex_error_interrupt
+* DESCRIPTION:	PCI express error interrupt  routine
+* INPUTS:	@irq: irq number
+		@dev_id: device id - ignored
+* OUTPUTS:	kernel error message
+* RETURNS:	IRQ_HANDLED
+**/
+static irqreturn_t pex_error_interrupt(int irq, void *dev_id)
+{
+	MV_U32	reg_val;
+	MV_U32 ifPexNumber=*(MV_U32 *)dev_id;
+
+	/* get current value of Interrupt Cause Register */
+	reg_val = MV_REG_READ(MV_PCI_IRQ_CAUSE_REG(ifPexNumber));
+	printk(KERN_ERR "PCI express error: irq - %d, Pex number: %d, Interrupt Cause Register value: %x  \n", irq, ifPexNumber, reg_val);
+
+	return IRQ_HANDLED;
 }
 
 static int __init mv_map_irq_0(struct pci_dev *dev, u8 slot, u8 pin)
