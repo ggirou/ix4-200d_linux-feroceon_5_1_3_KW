@@ -381,11 +381,14 @@ static inline void mv_eth_skb_recycle_reset(struct sk_buff *skb)
 }
 #endif /* LINUX_VERSION_CODE < 2.6.24 */
 
-static int mv_eth_skb_recycle(struct sk_buff *skb)
+static int mv_eth_skb_recycle(struct sk_buff *skb, int reject)
 {
     MV_PKT_INFO *pkt = (MV_PKT_INFO*)skb->hw_cookie;
     mv_eth_priv *priv = mv_eth_ports[(int)pkt->ownerId];
     unsigned long flags = 0;
+
+    if (reject)
+	goto out;
 
     if (unlikely(mvStackIsFull(priv->rxPool))) {
 	ETH_STAT_DBG(priv->eth_stat.skb_recycle_full++);
@@ -395,6 +398,7 @@ static int mv_eth_skb_recycle(struct sk_buff *skb)
     printk("mv_eth_skb_recycle: skb=%p, pkt=%p, priv=%p\n", skb, pkt, priv);
     print_skb(skb);
 */
+
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,24)
     if (mv_eth_skb_check(skb, priv->rx_buf_size)) {
         mv_eth_skb_recycle_reset(skb);
@@ -414,6 +418,8 @@ static int mv_eth_skb_recycle(struct sk_buff *skb)
 
 out:
 	ETH_STAT_DBG(priv->eth_stat.skb_recycle_rej++);
+	mv_eth_pkt_info_free(pkt);
+	skb->hw_cookie = NULL;
 	return 1;
 }
 #endif

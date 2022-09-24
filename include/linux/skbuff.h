@@ -363,7 +363,7 @@ struct sk_buff {
 
 	void			(*destructor)(struct sk_buff *skb);
 #ifdef CONFIG_NET_SKB_RECYCLE
-	int			(*skb_recycle) (struct sk_buff *skb);
+	int			(*skb_recycle) (struct sk_buff *skb, int reject);
 	void			*hw_cookie;
 #endif /* CONFIG_NET_SKB_RECYCLE */
 

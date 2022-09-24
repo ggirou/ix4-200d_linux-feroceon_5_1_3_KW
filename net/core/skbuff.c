@@ -356,6 +356,13 @@ static inline void skb_release_data(struct sk_buff *skb)
 
 		kfree(skb->head);
 	}
+#ifdef CONFIG_NET_SKB_RECYCLE
+	/* Workaround for the cases when recycle callback was not called */
+	if (skb->hw_cookie) {
+		skb->skb_recycle(skb, 1);
+	}
+	skb->skb_recycle = NULL;
+#endif /* CONFIG_NET_SKB_RECYCLE */	
 }
 
 /*
@@ -440,7 +447,7 @@ static inline void skb_release_all(struct sk_buff *skb)
 void __kfree_skb(struct sk_buff *skb)
 {
 #ifdef CONFIG_NET_SKB_RECYCLE
-	if (skb->skb_recycle && !skb->skb_recycle(skb))
+	if (skb->skb_recycle && !skb->skb_recycle(skb, 0))
 		return;
 #endif /* CONFIG_NET_SKB_RECYCLE */
  
@@ -512,7 +519,7 @@ int skb_recycle_check(struct sk_buff *skb, int skb_size)
 	if (skb_end_pointer(skb) - skb->head < skb_size)
 		return 0;
 
-	if (skb_shared(skb) || skb_cloned(skb))
+	if (skb_shared(skb) || skb_cloned(skb) || skb_has_frags(skb))
 		return 0;
 
 	skb_release_head_state(skb);
@@ -532,7 +539,6 @@ int skb_recycle_check(struct sk_buff *skb, int skb_size)
 #endif
 
 	memset(skb, 0, offsetof(struct sk_buff, tail));
-  	skb->truesize = (skb->end - skb->head) + sizeof(struct sk_buff);
 	skb->data = skb->head + NET_SKB_PAD;
 	skb_reset_tail_pointer(skb);
 
