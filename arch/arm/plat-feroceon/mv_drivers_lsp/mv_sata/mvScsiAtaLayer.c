@@ -3555,6 +3555,9 @@ MV_VOID mvSataScsiNotifyUA(MV_SAL_ADAPTER_EXTENSION *pAdapterExt,
     pAdapterExt->UAMask;
     mvLogMsg(MV_SAL_LOG_ID, MV_DEBUG, " %d %d %d: Notify SAL with Unit Attention condition.\n",
              pAdapterExt->pSataAdapter->adapterId, channelIndex, PMPort);
+#else
+    pAdapterExt->ataDriveData[channelIndex][PMPort].UAConditionPending = MV_FALSE;
+    pAdapterExt->ataDriveData[channelIndex][PMPort].UAEvents = 0;
 #endif
 }
 
