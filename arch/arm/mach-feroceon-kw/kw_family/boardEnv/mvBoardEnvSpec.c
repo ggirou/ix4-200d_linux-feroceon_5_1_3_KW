@@ -823,7 +823,7 @@ MV_BOARD_INFO db88f6280AInfo = {
 #define RD_88F6282A_BOARD_PCI_IF_NUM            	0x0
 #define RD_88F6282A_BOARD_TWSI_DEF_NUM		0x0
 #define RD_88F6282A_BOARD_MAC_INFO_NUM		0x2
-#define RD_88F6282A_BOARD_GPP_INFO_NUM		0x4
+#define RD_88F6282A_BOARD_GPP_INFO_NUM		0x5
 #define RD_88F6282A_BOARD_MPP_CONFIG_NUM		0x1
 #define RD_88F6282A_BOARD_MPP_GROUP_TYPE_NUM	0x1
 #define RD_88F6282A_BOARD_DEVICE_CONFIG_NUM	0x1
@@ -852,7 +852,8 @@ MV_BOARD_MPP_TYPE_INFO rd88f6282aInfoBoardMppTypeInfo[] =
 
 MV_BOARD_GPP_INFO rd88f6282aInfoBoardGppInfo[] = 
 	/* {{MV_BOARD_GPP_CLASS	devClass, MV_U8	gppPinNum}} */
-	{{BOARD_GPP_HDD_POWER, 35},
+	{{BOARD_GPP_WPS_BUTTON, 29},
+	{BOARD_GPP_HDD_POWER, 35},
     	{BOARD_GPP_FAN_POWER, 34},
     	{BOARD_GPP_USB_VBUS, 37},
     	{BOARD_GPP_USB_VBUS_EN, 37}
@@ -903,7 +904,7 @@ MV_BOARD_INFO rd88f6282aInfo = {
 	RD_88F6282A_OE_HIGH,				/* gppOutEnHigh */
 	RD_88F6282A_OE_VAL_LOW,				/* gppOutValLow */
 	RD_88F6282A_OE_VAL_HIGH,				/* gppOutValHigh */
-	0,						/* gppPolarityValLow */
+	BIT29,						/* gppPolarityValLow */
 	BIT6, 						/* gppPolarityValHigh */
 	rd88f6282aInfoBoardSwitchInfo,			/* pSwitchInfo */
     	RD_88F6282A_BOARD_NAND_READ_PARAMS,
