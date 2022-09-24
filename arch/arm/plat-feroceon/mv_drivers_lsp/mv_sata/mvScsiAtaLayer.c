@@ -3541,6 +3541,12 @@ MV_VOID     mvSataScsiSetDriveReady(MV_SAL_ADAPTER_EXTENSION *pAdapterExt,
 MV_VOID mvSataScsiNotifyUA(MV_SAL_ADAPTER_EXTENSION *pAdapterExt,
                            MV_U8    channelIndex, MV_U8 PMPort)
 {
+/*
+ * disable unit attention errors, the commit "[SCSI] fix barrier failure issue" causes to 
+ * some of those commands to be completed with error by the scsi layer.
+ */
+
+#if 0 
     pAdapterExt->ataDriveData[channelIndex][PMPort].UAConditionPending = MV_TRUE;
     /* bit 0 - reset*/
     /* bit 1 - parameters changed*/
@@ -3549,5 +3555,6 @@ MV_VOID mvSataScsiNotifyUA(MV_SAL_ADAPTER_EXTENSION *pAdapterExt,
     pAdapterExt->UAMask;
     mvLogMsg(MV_SAL_LOG_ID, MV_DEBUG, " %d %d %d: Notify SAL with Unit Attention condition.\n",
              pAdapterExt->pSataAdapter->adapterId, channelIndex, PMPort);
+#endif
 }
 
