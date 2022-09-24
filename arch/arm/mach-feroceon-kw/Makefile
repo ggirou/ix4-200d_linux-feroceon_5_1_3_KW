@@ -106,3 +106,6 @@ feroceon-$(CONFIG_MV_DBG_TRACE) 	+= $(LSP_DIR)/dbg-trace.o
 feroceon-$(CONFIG_CPU_FREQ_FEROCEON_KW) += $(LSP_DIR)/cpufreq.o
 feroceon-$(CONFIG_CPU_IDLE)		+= $(LSP_DIR)/cpuidle.o
 feroceon-$(CONFIG_SENSORS_FEROCEON_KW)	+= hwmon.o
+
+# Power Management
+feroceon-$(CONFIG_PM) 			+= $(LSP_DIR)/pm.o
