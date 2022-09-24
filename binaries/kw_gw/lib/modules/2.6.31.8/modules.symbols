@@ -1,0 +1,20 @@
+# Aliases for symbols, used by symbol_request().
+alias symbol:cdrom_get_last_written cdrom
+alias symbol:crc_itu_t crc-itu-t
+alias symbol:cdrom_media_changed cdrom
+alias symbol:unregister_cdrom cdrom
+alias symbol:hwrng_register rng-core
+alias symbol:crc_itu_t_table crc-itu-t
+alias symbol:cdrom_get_media_event cdrom
+alias symbol:cdrom_mode_select cdrom
+alias symbol:usb_gadget_register_driver mv_udc
+alias symbol:cdrom_number_of_slots cdrom
+alias symbol:register_cdrom cdrom
+alias symbol:hwrng_unregister rng-core
+alias symbol:mv_usb_show mv_udc
+alias symbol:cdrom_release cdrom
+alias symbol:cdrom_open cdrom
+alias symbol:init_cdrom_command cdrom
+alias symbol:cdrom_ioctl cdrom
+alias symbol:cdrom_mode_sense cdrom
+alias symbol:usb_gadget_unregister_driver mv_udc

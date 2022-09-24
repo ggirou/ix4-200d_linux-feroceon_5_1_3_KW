@@ -218,7 +218,11 @@ struct sk_buff *__alloc_skb(unsigned int size, gfp_t gfp_mask,
 	shinfo->ip6_frag_id = 0;
 	shinfo->tx_flags.flags = 0;
 	skb_frag_list_init(skb);
+
+    /* removing this memset improves performance */
+#ifndef CONFIG_MV_ETHERNET
 	memset(&shinfo->hwtstamps, 0, sizeof(shinfo->hwtstamps));
+#endif
 
 	if (fclone) {
 		struct sk_buff *child = skb + 1;
@@ -336,7 +340,7 @@ static void skb_clone_fraglist(struct sk_buff *skb)
 		skb_get(list);
 }
 
-static void skb_release_data(struct sk_buff *skb)
+static inline void skb_release_data(struct sk_buff *skb)
 {
 	if (!skb->cloned ||
 	    !atomic_sub_return(skb->nohdr ? (1 << SKB_DATAREF_SHIFT) + 1 : 1,
@@ -357,7 +361,7 @@ static void skb_release_data(struct sk_buff *skb)
 /*
  *	Free an skbuff by memory without cleaning the state.
  */
-static void kfree_skbmem(struct sk_buff *skb)
+static inline void kfree_skbmem(struct sk_buff *skb)
 {
 	struct sk_buff *other;
 	atomic_t *fclone_ref;
@@ -388,7 +392,7 @@ static void kfree_skbmem(struct sk_buff *skb)
 	}
 }
 
-static void skb_release_head_state(struct sk_buff *skb)
+static inline void skb_release_head_state(struct sk_buff *skb)
 {
 	skb_dst_drop(skb);
 #ifdef CONFIG_XFRM
@@ -399,8 +403,11 @@ static void skb_release_head_state(struct sk_buff *skb)
 		skb->destructor(skb);
 	}
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
-	nf_conntrack_put(skb->nfct);
-	nf_conntrack_put_reasm(skb->nfct_reasm);
+	if(skb->nfct) 
+		nf_conntrack_put(skb->nfct);
+	
+	if(skb->nfct_reasm) 
+		nf_conntrack_put_reasm(skb->nfct_reasm);
 #endif
 #ifdef CONFIG_BRIDGE_NETFILTER
 	nf_bridge_put(skb->nf_bridge);
@@ -415,7 +422,7 @@ static void skb_release_head_state(struct sk_buff *skb)
 }
 
 /* Free everything but the sk_buff shell. */
-static void skb_release_all(struct sk_buff *skb)
+static inline void skb_release_all(struct sk_buff *skb)
 {
 	skb_release_head_state(skb);
 	skb_release_data(skb);
@@ -432,6 +439,11 @@ static void skb_release_all(struct sk_buff *skb)
 
 void __kfree_skb(struct sk_buff *skb)
 {
+#ifdef CONFIG_NET_SKB_RECYCLE
+	if (skb->skb_recycle && !skb->skb_recycle(skb))
+		return;
+#endif /* CONFIG_NET_SKB_RECYCLE */
+ 
 	skb_release_all(skb);
 	kfree_skbmem(skb);
 }
@@ -513,9 +525,14 @@ int skb_recycle_check(struct sk_buff *skb, int skb_size)
 	shinfo->ip6_frag_id = 0;
 	shinfo->tx_flags.flags = 0;
 	skb_frag_list_init(skb);
+
+    /* removing this memset improves performance */
+#ifndef CONFIG_MV_ETHERNET
 	memset(&shinfo->hwtstamps, 0, sizeof(shinfo->hwtstamps));
+#endif
 
 	memset(skb, 0, offsetof(struct sk_buff, tail));
+  	skb->truesize = (skb->end - skb->head) + sizeof(struct sk_buff);
 	skb->data = skb->head + NET_SKB_PAD;
 	skb_reset_tail_pointer(skb);
 
@@ -585,6 +602,12 @@ static struct sk_buff *__skb_clone(struct sk_buff *n, struct sk_buff *skb)
 	n->cloned = 1;
 	n->nohdr = 0;
 	n->destructor = NULL;
+
+#ifdef CONFIG_NET_SKB_RECYCLE
+	n->skb_recycle = NULL;
+	n->hw_cookie = NULL;
+#endif /* CONFIG_NET_SKB_RECYCLE */
+
 	C(tail);
 	C(end);
 	C(head);
