@@ -30,6 +30,15 @@
 #include <linux/syscalls.h>
 #include <linux/uio.h>
 #include <linux/security.h>
+#include <net/sock.h>
+#include "read_write.h"
+
+#define WRITE_SKT_TO_FILE
+#define WRITE_FROM_SOCK_TIMEOUT  8000
+
+#ifdef COLLECT_WRITE_SOCK_TO_FILE_STAT
+extern struct write_sock_to_file_stat write_from_sock;
+#endif /* COLLECT_WRITE_SOCK_TO_FILE_STAT */
 
 /*
  * Attempt to steal a page from a pipe buffer. This should perhaps go into
@@ -502,8 +511,10 @@ ssize_t generic_file_splice_read(struct file *in, loff_t *ppos,
 		len = left;
 
 	ret = __generic_file_splice_read(in, ppos, pipe, len, flags);
-	if (ret > 0)
+	if (ret > 0) {
 		*ppos += ret;
+		file_accessed(in);
+	}
 
 	return ret;
 }
@@ -646,9 +657,11 @@ static int pipe_to_sendpage(struct pipe_inode_info *pipe,
 	ret = buf->ops->confirm(pipe, buf);
 	if (!ret) {
 		more = (sd->flags & SPLICE_F_MORE) || sd->len < sd->total_len;
-
-		ret = file->f_op->sendpage(file, buf->page, buf->offset,
-					   sd->len, &pos, more);
+		if (file->f_op && file->f_op->sendpage)
+			ret = file->f_op->sendpage(file, buf->page, buf->offset,
+						   sd->len, &pos, more);
+		else
+			ret = -EINVAL;
 	}
 
 	return ret;
@@ -963,8 +976,10 @@ generic_file_splice_write(struct pipe_inode_info *pipe, struct file *out,
 
 		mutex_lock_nested(&inode->i_mutex, I_MUTEX_CHILD);
 		ret = file_remove_suid(out);
-		if (!ret)
+		if (!ret) {
+			file_update_time(out);
 			ret = splice_from_pipe_feed(pipe, &sd, pipe_to_file);
+		}
 		mutex_unlock(&inode->i_mutex);
 	} while (ret > 0);
 	splice_from_pipe_end(pipe, &sd);
@@ -1074,8 +1089,9 @@ static long do_splice_from(struct pipe_inode_info *pipe, struct file *out,
 	if (unlikely(ret < 0))
 		return ret;
 
-	splice_write = out->f_op->splice_write;
-	if (!splice_write)
+	if (out->f_op && out->f_op->splice_write)
+		splice_write = out->f_op->splice_write;
+	else
 		splice_write = default_file_splice_write;
 
 	return splice_write(pipe, out, ppos, len, flags);
@@ -1099,8 +1115,9 @@ static long do_splice_to(struct file *in, loff_t *ppos,
 	if (unlikely(ret < 0))
 		return ret;
 
-	splice_read = in->f_op->splice_read;
-	if (!splice_read)
+	if (in->f_op && in->f_op->splice_read)
+		splice_read = in->f_op->splice_read;
+	else
 		splice_read = default_file_splice_read;
 
 	return splice_read(in, ppos, pipe, len, flags);
@@ -1322,7 +1339,8 @@ static long do_splice(struct file *in, loff_t __user *off_in,
 		if (off_in)
 			return -ESPIPE;
 		if (off_out) {
-			if (out->f_op->llseek == no_llseek)
+			if (!out->f_op || !out->f_op->llseek ||
+			    out->f_op->llseek == no_llseek)
 				return -EINVAL;
 			if (copy_from_user(&offset, off_out, sizeof(loff_t)))
 				return -EFAULT;
@@ -1342,7 +1360,8 @@ static long do_splice(struct file *in, loff_t __user *off_in,
 		if (off_out)
 			return -ESPIPE;
 		if (off_in) {
-			if (in->f_op->llseek == no_llseek)
+			if (!in->f_op || !in->f_op->llseek ||
+			    in->f_op->llseek == no_llseek)
 				return -EINVAL;
 			if (copy_from_user(&offset, off_in, sizeof(loff_t)))
 				return -EFAULT;
@@ -1660,30 +1679,65 @@ SYSCALL_DEFINE6(splice, int, fd_in, loff_t __user *, off_in,
 		int, fd_out, loff_t __user *, off_out,
 		size_t, len, unsigned int, flags)
 {
-	long error;
-	struct file *in, *out;
+	long error, timeout;
+	struct file *in, *out = NULL;
+	struct socket *socket_struct = NULL;
 	int fput_in, fput_out;
-
 	if (unlikely(!len))
 		return 0;
 
 	error = -EBADF;
-	in = fget_light(fd_in, &fput_in);
-	if (in) {
-		if (in->f_mode & FMODE_READ) {
-			out = fget_light(fd_out, &fput_out);
-			if (out) {
-				if (out->f_mode & FMODE_WRITE)
-					error = do_splice(in, off_in,
-							  out, off_out,
-							  len, flags);
-				fput_light(out, fput_out);
-			}
-		}
 
-		fput_light(in, fput_in);
+	/* get file structure of "out" and check return result */
+	out = fget_light(fd_out, &fput_out);
+	if (out) {
+		if (!(out->f_mode & FMODE_WRITE)) {
+			fput_light(out, fput_out);
+			dprintk("FMODE_WRITE flag is not set in out->f_mode\n");
+			INC_WRITE_FROM_SOCK_ERR_CNT;
+			return error;
+		}
+	} else {
+		dprintk("Failed to get \"out\" file structire\n");
+		INC_WRITE_FROM_SOCK_ERR_CNT;
+		return error;
 	}
 
+#ifdef WRITE_SKT_TO_FILE
+    /* check fd_in is socket fd */
+
+	socket_struct = sockfd_lookup(fd_in, (int*)&error);
+	/* if fd_in is socket do do_splice_from_socket_to_file else do_splice */
+	if (socket_struct) {
+		/* check size of len argument and socket */
+		if(len > WRITE_RECEIVE_SIZE || !socket_struct->sk) {
+			if (socket_struct->sk != 0)
+				dprintk("Bad length (%d)\n", len);
+			else
+				dprintk("Bad socket (socket_struct->sk == 0)\n");
+			INC_WRITE_FROM_SOCK_ERR_CNT;
+        	error = -EINVAL;
+		} else {
+			timeout = socket_struct->sk->sk_rcvtimeo;
+			/* code from /net/tipc/socket.c line 61, 241 */
+			socket_struct->sk->sk_rcvtimeo = msecs_to_jiffies(WRITE_FROM_SOCK_TIMEOUT);
+			error = write_from_socket_to_file(socket_struct, out, off_out, len);
+			socket_struct->sk->sk_rcvtimeo = timeout;
+		} 
+		fput(socket_struct->file);
+	} else {
+#endif
+		in = fget_light(fd_in, &fput_in);
+		if (in) {
+			if (in->f_mode & FMODE_READ) {
+				error = do_splice(in, off_in, out, off_out, len, flags);
+			}
+			fput_light(in, fput_in);
+		}
+#ifdef WRITE_SKT_TO_FILE
+	}
+#endif
+	fput_light(out, fput_out);
 	return error;
 }
 
