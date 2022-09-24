@@ -1373,7 +1373,7 @@ iso_stream_schedule (
 		goto fail;
 	}
 
-	if ((stream->depth + sched->span) > mod) {
+	if ((stream->depth + sched->span) >= mod) {
 		ehci_dbg(ehci, "request %p would overflow ((%d + %d) > %d)\n",
 			urb, stream->depth, sched->span, mod);
 		status = -EFBIG;
@@ -1408,7 +1408,7 @@ iso_stream_schedule (
 			status = -EFBIG;
 			goto fail;
 		}
-		stream->next_uframe = start;
+		stream->next_uframe = start % mod;
 		goto ready;
 	}
 
@@ -1804,8 +1804,8 @@ sitd_sched_init(
 	unsigned	i;
 	dma_addr_t	dma = urb->transfer_dma;
 
-	/* how many frames are needed for these transfers */
-	iso_sched->span = urb->number_of_packets * stream->interval;
+	/* how many uframes are needed for these transfers */
+	iso_sched->span = urb->number_of_packets * stream->interval * 8;
 
 	/* figure out per-frame sitd fields that we'll need later
 	 * when we fit new sitds into the schedule.
