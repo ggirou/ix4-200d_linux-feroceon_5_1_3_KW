@@ -777,13 +777,15 @@ static void eth_check_link_status(struct net_device *dev)
 
             mvEthPortUp(priv->hal_priv);
             netif_carrier_on(dev);
-            netif_wake_queue(dev);            
+            netif_wake_queue(dev);
+	    priv->flags |= MV_ETH_F_LINK_UP;
         }
     	else
         {
-            netif_carrier_off( dev );
-            netif_stop_queue( dev );
-            mv_eth_down_internals( dev );
+            netif_carrier_off(dev);
+            netif_stop_queue(dev);
+	    priv->flags &= ~MV_ETH_F_LINK_UP;
+            mv_eth_down_internals(dev);
         }
 
         spin_unlock(priv->lock);
@@ -1642,6 +1644,45 @@ void    mv_netdev_set_features(struct net_device *dev)
 #endif /* ETH_INCLUDE_UFO */
 }
 
+
+static int mv_force_port_link_speed_fc(mv_eth_priv *priv, MV_ETH_PORT_SPEED port_speed, int en_force)
+{
+	if (en_force) {
+		if (mvEthForceLinkModeSet(priv->hal_priv, 1, 0)) {
+			printk(KERN_ERR "mvEthForceLinkModeSet failed\n");
+			return -EIO;
+		}
+		if (mvEthSpeedDuplexSet(priv->hal_priv, port_speed, MV_ETH_DUPLEX_FULL)) {
+			printk(KERN_ERR "mvEthSpeedDuplexSet failed\n");
+			return -EIO;
+		}
+		if (mvEthFlowCtrlSet(priv->hal_priv, MV_ETH_FC_ENABLE)) {
+			printk(KERN_ERR "mvEthFlowCtrlSet failed\n");
+			return -EIO;
+		}
+
+		priv->flags |= MV_ETH_F_FORCED_LINK;
+	}
+	else {
+		if (mvEthForceLinkModeSet(priv->hal_priv, 0, 0)) {
+			printk(KERN_ERR "mvEthForceLinkModeSet failed\n");
+			return -EIO;
+		}
+		if (mvEthSpeedDuplexSet(priv->hal_priv, MV_ETH_SPEED_AN, MV_ETH_DUPLEX_AN)) {
+			printk(KERN_ERR "mvEthSpeedDuplexSet failed\n");
+			return -EIO;
+		}
+		if (mvEthFlowCtrlSet(priv->hal_priv, MV_ETH_FC_AN_ADV_SYM)) {
+			printk(KERN_ERR "mvEthFlowCtrlSet failed\n");
+			return -EIO;
+		}
+
+		priv->flags &= ~MV_ETH_F_FORCED_LINK;
+	}
+	return 0;
+}
+
+
 /*********************************************************** 
  * mv_eth_start_internals --                                *
  *   fill rx buffers. start rx/tx activity. set coalesing. *
@@ -1651,9 +1692,10 @@ int     mv_eth_start_internals(mv_eth_priv *priv, int mtu)
 {
     unsigned long   flags;
     unsigned int    status;
-    int             count, num, rxq;    
+    int             count, num, rxq, err = 0;
+    MV_BOARD_MAC_SPEED mac_speed;
 
-    spin_lock_irqsave( priv->lock, flags); 
+    spin_lock_irqsave(priv->lock, flags); 
 
     /* 32(extra for cache prefetch) + 8 to align on 8B */
     priv->rx_buf_size = MV_RX_BUF_SIZE(mtu) + CPU_D_CACHE_LINE_SIZE  + 8;
@@ -1671,12 +1713,38 @@ int     mv_eth_start_internals(mv_eth_priv *priv, int mtu)
         mv_eth_rxq_fill(priv, rxq, mv_eth_rxq_desc[rxq]);
     }
 
+    /* force link, speed and duplex if necessary (e.g. Switch is connected) based on board information */
+    mac_speed = mvBoardMacSpeedGet(priv->port);
+    switch (mac_speed) {
+	case BOARD_MAC_SPEED_10M:
+	    err = mv_force_port_link_speed_fc(priv, MV_ETH_SPEED_10, 1);
+	    if (err)
+		goto out;
+	    break;
+	case BOARD_MAC_SPEED_100M:
+	    err = mv_force_port_link_speed_fc(priv, MV_ETH_SPEED_100, 1);
+	    if (err)
+		goto out;
+	    break;
+	case BOARD_MAC_SPEED_1000M:
+	    err = mv_force_port_link_speed_fc(priv, MV_ETH_SPEED_1000, 1);
+	    if (err)
+		goto out;
+	    break;
+	case BOARD_MAC_SPEED_AUTO:
+	default:
+	    /* do nothing */
+	    break;
+    }
+
     /* start the hal - rx/tx activity */
-    status = mvEthPortEnable( priv->hal_priv );
+    status = mvEthPortEnable(priv->hal_priv);
+    if (status == MV_OK)
+        priv->flags |= MV_ETH_F_LINK_UP;
     if( (status != MV_OK) && (status != MV_NOT_READY)) {
         printk( KERN_ERR "GbE port %d: ethPortEnable failed\n", priv->port);
         spin_unlock_irqrestore( priv->lock, flags);
-      return -1;
+        return -1;
     }
 
     /* set tx/rx coalescing mechanism */
@@ -1688,9 +1756,9 @@ int     mv_eth_start_internals(mv_eth_priv *priv, int mtu)
     mvEthRxCoalSet( priv->hal_priv, ETH_RX_COAL );
 #endif /* CONFIG_MV_ETH_TOOL */
 
-    spin_unlock_irqrestore( priv->lock, flags);
-
-    return 0;
+out:
+    spin_unlock_irqrestore(priv->lock, flags);
+    return err;
 }
 
 /*********************************************************** 
@@ -1840,7 +1908,7 @@ static void mv_netdev_timer_callback( unsigned long data )
 
     spin_unlock(priv->lock);
 
-    if(priv->timer_flag)
+    if (priv->flags & MV_ETH_F_TIMER)
     {
         priv->timer.expires = jiffies + ((HZ*CONFIG_MV_ETH_TIMER_PERIOD)/1000); /*ms*/
         add_timer( &priv->timer );
@@ -1962,7 +2030,7 @@ int __init mv_eth_priv_init(mv_eth_priv *priv, int port)
     memset( &priv->timer, 0, sizeof(struct timer_list) );
     priv->timer.function = mv_netdev_timer_callback;
     init_timer(&priv->timer);
-    priv->timer_flag = 0;
+    priv->flags = 0;
     priv->skb_alloc_fail_cnt = 0;
 
 #ifdef ETH_LRO

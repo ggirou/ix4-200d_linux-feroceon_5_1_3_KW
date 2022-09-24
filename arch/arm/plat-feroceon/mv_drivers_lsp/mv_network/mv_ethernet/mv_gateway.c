@@ -1073,11 +1073,11 @@ int mv_gtw_start( struct net_device *dev )
     mv_gtw_set_mac_addr_to_switch(broadcast, MV_GTW_VLAN_TO_GROUP(vlan_cfg->vlan_grp_id), 
 					vlan_cfg->ports_mask|(1<<SWITCH_PORT_CPU), 1);
 
-    if (priv->timer_flag == 0)
+    if (!(priv->flags & MV_ETH_F_TIMER))
     {
         priv->timer.expires = jiffies + ((HZ*CONFIG_MV_ETH_TIMER_PERIOD)/1000); /*ms*/
         add_timer( &(priv->timer) );
-        priv->timer_flag = 1;
+        priv->flags |= MV_ETH_F_TIMER;
     }
 
     if ( (priv->net_dev == dev) || !netif_running(priv->net_dev) )
@@ -1128,7 +1128,7 @@ int mv_gtw_stop( struct net_device *dev )
 	    napi_disable(&priv->napi);
 #endif
             mv_eth_mask_interrupts(priv);
-    	    priv->timer_flag = 0;
+    	    priv->flags &= ~MV_ETH_F_TIMER;
             del_timer(&priv->timer);
 
             free_irq( dev->irq, priv );

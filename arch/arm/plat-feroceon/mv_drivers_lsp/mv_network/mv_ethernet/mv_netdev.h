@@ -230,6 +230,13 @@ typedef struct _eth_statistics
 
 } eth_statistics;
 
+
+/* Masks used for pp->flags */
+#define MV_ETH_F_TIMER		0x01
+#define MV_ETH_F_LINK_UP	0x02
+#define MV_ETH_F_FORCED_LINK	0x04	/* port is connected to a Switch with forced link */
+
+
 typedef struct _mv_eth_priv
 {
     int                 port;
@@ -241,7 +248,7 @@ typedef struct _mv_eth_priv
     MV_STACK*           txPktInfoPool;
     int                 tx_count[CONFIG_MV_ETH_TXQ];
     struct timer_list   timer;
-    unsigned int        timer_flag;
+    unsigned int        flags; /* timer, link up etc. */
     unsigned int        skb_alloc_fail_cnt;
     struct net_device   *net_dev;		/* back reference to the net_device */
 
